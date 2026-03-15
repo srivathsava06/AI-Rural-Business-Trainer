@@ -6,16 +6,13 @@ Handles mentor responses, scenario generation, Q&A, and quiz grading.
 import os
 import json
 from pathlib import Path
-import google.generativeai as genai
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY", ""))
-
-# Use the recommended Gemini model
-# 'gemini-1.5-flash' is fast and good for general text tasks
-model = genai.GenerativeModel("gemini-1.5-flash")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/hunter-alpha")
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
@@ -26,13 +23,31 @@ def _load_prompt(filename: str) -> str:
 
 
 def _call_gemini(system_prompt: str, user_message: str) -> str:
-    """Make a single Gemini API call and return the text response."""
-    # We can pass system instructions directly to the model configuration if supported,
-    # or prepend it to the user's prompt as a workaround.
-    prompt = f"System Instruction:\n{system_prompt}\n\nUser Request:\n{user_message}"
-    
-    response = model.generate_content(prompt)
-    return response.text
+    """Make a single API call to OpenRouter and return the text response."""
+    try:
+        response = httpx.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "http://localhost:3000",
+                "X-Title": "AI Rural Business Trainer",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": OPENROUTER_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}
+                ]
+            },
+            timeout=30.0
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return "{}"
 
 
 def _parse_json_response(text: str) -> dict:
